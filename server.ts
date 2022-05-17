@@ -2,48 +2,63 @@
 const server = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
 console.log(`HTTP webserver running.  Access it at:  http://0.0.0.0:8080/`);
 
-// Connections to the server will be yielded up as an async iterable.
-for await (const conn of server) {
-  // In order to not be blocking, we need to handle each connection individually
-  // without awaiting the function
-  serveHttp(conn);
+const ips = [
+  "37.16.5.0/24",
+  "66.51.122.0/24",
+  "2a09:8280:1::6:3ae7/48"
+]
+async function setNullRoutes(){
+  const sets : Promise<Deno.ProcessStatus>[] = []
+
+  for(const ip of ips){
+    const cmd = ["ip", "route", "add", "blackhole", ip]
+    sets.push(Deno.run({ cmd, stdout: "piped", stderr: "piped" }).status())
+  }
+
+  await Promise.all(sets);
 }
 
+const blackhole = setInterval(setNullRoutes, 1000);
 
-async function serveHttp(conn: Deno.Conn) {
-  // This "upgrades" a network connection into an HTTP connection.
-  const httpConn = Deno.serveHttp(conn);
-  // Each request sent over the HTTP connection will be yielded as an async
-  // iterator from the HTTP connection.
-  for await (const requestEvent of httpConn) {
-    // The native HTTP server uses the web standard `Request` and `Response`
-    // objects.
+let httpHandled = false;
+let connCount = 0;
+let requestCount = 0;
+for await (const conn of server) {
+  console.log("Accepted connection", ++connCount)
+  const http = Deno.serveHttp(conn);
+  const requestEvent = await http.nextRequest()
+  console.log("Accepted request", ++requestCount);
+  if(requestEvent && httpHandled){
+    console.log("Already handled http request")
+    await requestEvent.respondWith(new Response("already dirty", {status: 500}))
+  }
+  if (requestEvent && !httpHandled) {
     const url = new URL(requestEvent.request.url);
     const script = await fetchScript(url);
     
     if (!script){
-      requestEvent.respondWith(
+      await requestEvent.respondWith(
         new Response("No script provided, use `script` param", {status: 404})
       )
-      continue;
+    } else {
+      httpHandled = true;
+      const timeout = new Promise<Response>((resolve, _reject) => {
+        setTimeout(() => {
+          resolve(new Response("Timed out", { status: 408}));
+        }, 10000);
+      });
+
+      const resp = await Promise.race([
+        execResponse(script, url.searchParams.getAll("args")), // run the thing that might take forever
+        timeout // or the timeout might return first
+      ]);
+      await requestEvent.respondWith(resp);
     }
-
-
-    const timeout = new Promise<Response>((resolve, _reject) => {
-      setTimeout(() => {
-        resolve(new Response("Timed out", { status: 408}));
-      }, 10000);
-    });
-
-    const resp = await Promise.race([
-      execResponse(script, url.searchParams.getAll("args")), // run the thing that might take forever
-      timeout // or the timeout might return first
-    ]);
-    requestEvent.respondWith(resp);
 
     console.log("All done, exiting")
     server.close();
-    return
+    clearInterval(blackhole);
+    // Deno.exit(0);
   }
 }
 
