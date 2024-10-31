@@ -66,7 +66,7 @@ for await (const conn of server) {
 
 function getScriptURL(url: URL) {
 
-  const raw = url.searchParams.get("script");
+  const raw = url.searchParams.get("script") || url.searchParams.get("exec");
 
 
   if(!raw){
@@ -96,6 +96,7 @@ function getScriptURL(url: URL) {
 
 async function fetchScript(url: URL) {
   const scriptUrl = getScriptURL(url);
+  console.log(scriptUrl)
 
   if(!scriptUrl){ return }
 
