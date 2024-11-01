@@ -1,6 +1,6 @@
 // Start listening on port 8080 of localhost.
-const server = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
-console.log(`HTTP webserver running.  Access it at:  http://0.0.0.0:8080/`);
+//const server = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
+
 
 const ips = [
   "37.16.5.0/24",
@@ -8,11 +8,14 @@ const ips = [
   "2a09:8280:1::6:3ae7/48"
 ]
 async function setNullRoutes(){
-  const sets : Promise<Deno.ProcessStatus>[] = []
+  const sets : Promise<any>[] = []
 
   for(const ip of ips){
-    const cmd = ["ip", "route", "add", "blackhole", ip]
-    sets.push(Deno.run({ cmd, stdout: "piped", stderr: "piped" }).status())
+    const args = ["route", "add", "blackhole", ip]
+    sets.push((() => {
+      const cmd = new Deno.Command("ip", { args, stdout: "piped", stderr: "piped" })
+      return cmd.output()
+    })())
   }
 
   await Promise.all(sets);
@@ -20,47 +23,63 @@ async function setNullRoutes(){
 
 const blackhole = setInterval(setNullRoutes, 1000);
 
+const exit = async (server: Deno.HttpServer) => {
+  clearInterval(blackhole);
+  console.log(`Request finished, shutting down`);
+  await server.shutdown();
+  Deno.exit(0);
+}
+
 let httpHandled = false;
-let connCount = 0;
 let requestCount = 0;
-for await (const conn of server) {
-  console.log("Accepted connection", ++connCount)
-  const http = Deno.serveHttp(conn);
-  const requestEvent = await http.nextRequest()
-  console.log("Accepted request", ++requestCount);
-  if(requestEvent && httpHandled){
-    console.log("Already handled http request")
-    await requestEvent.respondWith(new Response("already dirty", {status: 500}))
+
+class OneTimeResponseStream extends TransformStream {
+  constructor(server: Deno.HttpServer) {
+    super({
+      transform: (chunk, controller) => {
+        controller.enqueue(chunk);
+      },
+      flush: (controller) => {
+        controller.terminate();
+        exit(server)
+      }
+    });
   }
-  if (requestEvent && !httpHandled) {
-    const url = new URL(requestEvent.request.url);
-    const script = await fetchScript(url);
-    
+}
+
+const server: Deno.HttpServer = Deno.serve({port: 8080, hostname: "0.0.0.0"},
+  async (request) => {
+    console.log("Accepted request", ++requestCount);
+    if(httpHandled){
+      console.log("Already handled http request")
+      return new Response("already dirty", {status: 500})
+    }
+    const url = new URL(request.url);
+    const reqBody = await request.text();
+    const script = await fetchScript(url, reqBody);
+    let resp : Response;
     if (!script){
-      await requestEvent.respondWith(
-        new Response("No script provided, use `script` param", {status: 404})
-      )
-    } else {
+      resp = new Response("No script provided, use `script` param or POST a body", {status: 404})
+    }else{
       httpHandled = true;
+
+
+      // only let it run for 10s
       const timeout = new Promise<Response>((resolve, _reject) => {
         setTimeout(() => {
           resolve(new Response("Timed out", { status: 408}));
         }, 10000);
       });
 
-      const resp = await Promise.race([
-        execResponse(script, url.searchParams.getAll("args")), // run the thing that might take forever
+      resp = await Promise.race([
+        execResponse(script), // run the thing that might take forever
         timeout // or the timeout might return first
       ]);
-      await requestEvent.respondWith(resp);
     }
 
-    console.log("All done, exiting")
-    server.close();
-    clearInterval(blackhole);
-    // Deno.exit(0);
+    return new Response(resp.body?.pipeThrough(new OneTimeResponseStream(server)), resp);
   }
-}
+)
 
 //➜  ~ curl "https://bfaas.fly.dev/?exec=https://github.com/ruanyf/simple-bash-scripts/blob/master/scripts/whereIP.sh"
 
@@ -94,36 +113,32 @@ function getScriptURL(url: URL) {
   return "https://raw.githubusercontent.com/" + path
 }
 
-async function fetchScript(url: URL) {
-  const scriptUrl = getScriptURL(url);
-  console.log(scriptUrl)
+async function fetchScript(url: URL, body:string) {
+  
+  if(body.length === 0){
+    const scriptUrl = getScriptURL(url);
+    //console.log(scriptUrl)
 
-  if(!scriptUrl){ return }
+    if(!scriptUrl){ return }
 
-  let name = new URL(scriptUrl).pathname.split("/").pop();
+    if(!scriptUrl){
+      return;
+    }
 
-  if(!name){
-    name = "script.sh";
+    console.log("Fetching:", scriptUrl);
+    const resp = await fetch(scriptUrl);
+
+    console.log("Got status:", resp.status)
+
+    if(resp.status != 200){
+      return
+    }
+    return await resp.text();
   }
-
-  if(!scriptUrl){
-    return;
-  }
-
-  console.log("Fetching:", scriptUrl);
-  const resp = await fetch(scriptUrl);
-
-  console.log("Got status:", resp.status)
-
-  if(resp.status != 200){
-    return
-  }
-  const body = await resp.text()
-  await Deno.writeTextFile(name, body);
-  return name;
+  return body;
 }
 
-async function execResponse(path: string, args?: string[]){
+async function execResponse(script: string){
   // const body = new ReadableStream({
   //   start(controller) {
   //     timer = setInterval(() => {
@@ -138,39 +153,56 @@ async function execResponse(path: string, args?: string[]){
   //   },
   // });
 
-  const cmd = ["/bin/bash", path]
 
-  if(args && args.length > 0){
-    cmd.push(...args)
-  }
-
-  console.log("running:", cmd.join(" "))
-
-  const p = Deno.run({
-    cmd,
+  //console.log("running:", args.join(" "))
+  const command = new Deno.Command("/bin/bash", {
+    args: ["-c", script],
+    stdin: "piped",
     stdout: "piped",
     stderr: "piped",
   });
-  
-  const { code } = await p.status();
-  console.log(`Exec status ${code}`)
-  
-  // Reading the outputs closes their pipes
-  const rawOutput = await p.output();
-  const rawError = await p.stderrOutput();
+  const child = command.spawn();
+  child.stdin.close();
 
-  let output = new TextDecoder().decode(rawOutput);
-  const error = new TextDecoder().decode(rawError);
+  const stdout = child.stdout.getReader();
+  const stderr = child.stderr.getReader();
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
 
-  if(error.length > 0){
-    output = [output, error].join("\n------------\n")
-  }
-  
-  if (code === 0) {
-    return new Response(output)
-  } else {
-    return new Response(output, {status: 500})
-  }
-  
-  //Deno.exit(code);
+  const body = new ReadableStream({
+    start: async (controller) => {
+      // const writer = child.stdin.getWriter();
+      // writer.write(script);
+
+      const enqueue = (label: string, chunk: ReadableStreamDefaultReadResult<Uint8Array>) => {
+        const txt = decoder.decode(chunk.value)
+        controller.enqueue(encoder.encode(`event: ${label}\ndata: ${JSON.stringify(txt)}\n\n`))
+      }
+
+      const readAll = async (label: string, reader: ReadableStreamDefaultReader<Uint8Array>) => {
+        try {
+          let chunk = await reader.read()
+          while(!chunk.done){
+            enqueue(label, chunk);
+            chunk = await reader.read();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      await Promise.all([
+        readAll("stdout", stdout),
+        readAll("stderr", stderr)]
+      );
+
+      controller.close();
+    },
+    cancel: reason => {
+      stdout.cancel(reason);
+      stderr.cancel(reason); 
+  },
+  });
+
+  return new Response(body, { headers: {"Content-Type": "text/event-stream"} });
 }
