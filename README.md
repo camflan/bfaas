@@ -4,17 +4,25 @@ This is a very small Deno app that runs Bash Functions-as-a-Service.
 
 ## Running Bash scripts
 
-`bfaas.fly.dev` has two parameters:
+`bfaas.fly.dev` accepts a script to execute with `/bin/bash`. Simply POST a bash script to the service and, you know, enjoy.
 
-* `script` URL to execute with bash
-* `args` Arguments. You can pass this multiple times
+This service returns an SSE response with two possible events: `stdout` and `stderr`. Both events include JSON encoded string data.
 
 Example: 
 
 ```
-➜  ~ curl "https://bfaas.fly.dev/?script=https://github.com/ruanyf/simple-bash-scripts/blob/master/scripts/whereIP.sh&args=108.160.195.151"
+➜  ~ curl -X POST -d "ls -la /" -D -
 
-Chicago, Illinois in United States.
+HTTP/2 200
+content-type: text/event-stream
+vary: Accept-Encoding
+date: Fri, 01 Nov 2024 04:22:34 GMT
+server: Fly/2936d2942 (2024-10-30)
+via: 2 fly.io
+fly-request-id: 01JBJZBVRD49TXK4Q7QHPDQW39-dfw
+
+event: stdout
+data: "total 104\ndrwxr-xr-x   1 root root  4096 Nov  1 04:22 .\ndrwxr-xr-x   1 root root  4096 Nov  1 04:22 ..\ndrwxr-xr-x   2 root root  4096 Nov  1 04:22 .fly\ndrwxr-xr-x   7 root root  4096 Nov  1 04:22 .fly-upper-layer\ndrwxr-xr-x   2 root root  4096 Nov  1 04:19 bfaas\nlrwxrwxrwx   1 root root     7 Oct 16 00:00 bin -> usr/bin\ndrwxr-xr-x   2 root root  4096 Aug 14 16:10 boot\ndrwxr-xr-x   1 deno deno  4096 Nov  1 04:22 deno-dir\ndrwxr-xr-x  10 root root  2620 Nov  1 04:22 dev\ndrwxr-xr-x   1 root root  4096 Nov  1 04:22 etc\ndrwxr-xr-x   2 root root  4096 Aug 14 16:10 home\nlrwxrwxrwx   1 root root     7 Oct 16 00:00 lib -> usr/lib\nlrwxrwxrwx   1 root root     9 Oct 16 00:00 lib64 -> usr/lib64\ndrwxr-xr-x   2 root root  4096 Oct 16 00:00 media\ndrwxr-xr-x   2 root root  4096 Oct 16 00:00 mnt\ndrwxr-xr-x   2 root root  4096 Oct 16 00:00 opt\ndr-xr-xr-x 128 root root     0 Nov  1 04:22 proc\ndrwx------   2 root root  4096 Oct 16 00:00 root\ndrwxr-xr-x   3 root root  4096 Oct 16 00:00 run\nlrwxrwxrwx   1 root root     8 Oct 16 00:00 sbin -> usr/sbin\ndrwxr-xr-x   2 root root  4096 Oct 16 00:00 srv\ndr-xr-xr-x  12 root root     0 Nov  1 04:22 sys\n-rwxr-xr-x   1 root root 24064 Oct 30 04:06 tini\ndrwxrwxrwt   2 root root  4096 Oct 16 00:00 tmp\ndrwxr-xr-x   1 root root  4096 Oct 16 00:00 usr\ndrwxr-xr-x  11 root root  4096 Oct 16 00:00 var\n"
 ```
 
 ## Isn't this a terrible idea?
