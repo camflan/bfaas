@@ -1,7 +1,3 @@
-// Start listening on port 8080 of localhost.
-//const server = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
-
-
 const ips = [
   "37.16.5.0/24",
   "66.51.122.0/24",
