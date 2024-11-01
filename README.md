@@ -6,7 +6,11 @@ This is a very small Deno app that runs Bash Functions-as-a-Service.
 
 `bfaas.fly.dev` accepts a script to execute with `/bin/bash`. Simply POST a bash script to the service and, you know, enjoy.
 
-This service returns an SSE response with two possible events: `stdout` and `stderr`. Both events include JSON encoded string data.
+This service returns an SSE response with these events: 
+
+* `stdout (string)`: standard output from script
+* `stderr (string)`: standard error from script
+* `timeout (string)`: error message indicating timeout
 
 Example: 
 

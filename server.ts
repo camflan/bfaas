@@ -62,19 +62,7 @@ const server: Deno.HttpServer = Deno.serve({port: 8080, hostname: "0.0.0.0"},
       resp = new Response("No script provided, use `script` param or POST a body", {status: 404})
     }else{
       httpHandled = true;
-
-
-      // only let it run for 10s
-      const timeout = new Promise<Response>((resolve, _reject) => {
-        setTimeout(() => {
-          resolve(new Response("Timed out", { status: 408}));
-        }, 10000);
-      });
-
-      resp = await Promise.race([
-        execResponse(script), // run the thing that might take forever
-        timeout // or the timeout might return first
-      ]);
+      resp = await execResponse(script); // run the thing that might take forever
     }
 
     return new Response(resp.body?.pipeThrough(new OneTimeResponseStream(server)), resp);
@@ -191,6 +179,15 @@ async function execResponse(script: string){
         }
       }
 
+      const start = Date.now();
+      setTimeout(() => {
+        const seconds = Math.floor((Date.now() - start) / 1000);
+        controller.enqueue(encoder.encode(`event: timeout\ndata: \"Execution canceled after ${seconds} seconds\n\"\n\n`))
+        stdout.cancel("timeout");
+        stderr.cancel("timeout"); 
+        controller.close();
+      }, 10000);
+
       await Promise.all([
         readAll("stdout", stdout),
         readAll("stderr", stderr)]
@@ -204,5 +201,6 @@ async function execResponse(script: string){
   },
   });
 
-  return new Response(body, { headers: {"Content-Type": "text/event-stream"} });
+  const resp = new Response(body, { headers: {"Content-Type": "text/event-stream"} });
+  return resp;
 }
