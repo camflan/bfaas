@@ -1,6 +1,7 @@
 app = "bfaas"
 [[restart]]
     policy = "always"
+    restries = 0
     processes = ["app"]
    
 [http_service]

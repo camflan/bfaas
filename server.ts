@@ -1,3 +1,7 @@
+// Start listening on port 8080 of localhost.
+//const server = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
+
+
 const ips = [
   "37.16.5.0/24",
   "66.51.122.0/24",
@@ -48,14 +52,16 @@ const server: Deno.HttpServer = Deno.serve({port: 8080, hostname: "0.0.0.0"},
     console.log("Accepted request", ++requestCount);
     if(httpHandled){
       console.log("Already handled http request")
-      return new Response("already dirty", {status: 500})
+      const resp = new Response("already dirty", {status: 500})
+      return new Response(resp.body?.pipeThrough(new OneTimeResponseStream(server)), resp);
     }
     const url = new URL(request.url);
     const reqBody = await request.text();
     const script = await fetchScript(url, reqBody);
     let resp : Response;
     if (!script){
-      resp = new Response("No script provided, use `script` param or POST a body", {status: 404})
+      // this doesn't do anything, no need to exit
+      return new Response("No script provided, use `script` param or POST a body", {status: 404})
     }else{
       httpHandled = true;
       resp = await execResponse(script); // run the thing that might take forever
@@ -158,9 +164,15 @@ async function execResponse(script: string){
       // const writer = child.stdin.getWriter();
       // writer.write(script);
 
-      const enqueue = (label: string, chunk: ReadableStreamDefaultReadResult<Uint8Array>) => {
-        const txt = decoder.decode(chunk.value)
-        controller.enqueue(encoder.encode(`event: ${label}\ndata: ${JSON.stringify(txt)}\n\n`))
+      const enqueue = (label: string, chunk: ReadableStreamDefaultReadResult<Uint8Array> | string) => {
+        let txt:string;
+        
+        if(typeof chunk === 'string'){
+          txt = chunk;
+        }else{
+          txt = JSON.stringify(decoder.decode(chunk.value));
+        }
+        controller.enqueue(encoder.encode(`event: ${label}\ndata: ${txt}\n\n`))
       }
 
       const readAll = async (label: string, reader: ReadableStreamDefaultReader<Uint8Array>) => {
@@ -178,7 +190,7 @@ async function execResponse(script: string){
       const start = Date.now();
       setTimeout(() => {
         const seconds = Math.floor((Date.now() - start) / 1000);
-        controller.enqueue(encoder.encode(`event: timeout\ndata: \"Execution canceled after ${seconds} seconds\n\"\n\n`))
+        controller.enqueue(encoder.encode(`event: timeout\ndata: \"Execution canceled after ${seconds} seconds\"\n\n`))
         stdout.cancel("timeout");
         stderr.cancel("timeout"); 
         controller.close();
@@ -189,6 +201,9 @@ async function execResponse(script: string){
         readAll("stderr", stderr)]
       );
 
+      const status = await child.status;
+      enqueue("exit", JSON.stringify({code: status.code}))
+
       controller.close();
     },
     cancel: reason => {
@@ -197,6 +212,6 @@ async function execResponse(script: string){
   },
   });
 
-  const resp = new Response(body, { headers: {"Content-Type": "text/event-stream"} });
+  const resp = new Response(body, { headers: {"Content-Type": "text/event-stream", "Content-Encoding": "none"} });
   return resp;
 }
