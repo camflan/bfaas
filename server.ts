@@ -8,6 +8,8 @@ const ips = [
   "2a09:8280:1::6:3ae7/48"
 ]
 async function setNullRoutes(){
+  //console.log("setNullRoutes interval fired")
+  return;
   const sets : Promise<any>[] = []
 
   for(const ip of ips){
@@ -144,12 +146,24 @@ async function execResponse(script: string){
   // });
 
 
+  const scriptAbort = new AbortController();
+
+  setTimeout(() => {
+    scriptAbort.abort()
+    console.log("aborted script")
+  }, 10000);
   //console.log("running:", args.join(" "))
+  // const command = new Deno.Command("nice", {
+  //   args: ["-n", "20", "--", "/bin/bash", "-c", script],
   const command = new Deno.Command("/bin/bash", {
     args: ["-c", script],
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
+    clearEnv: true,
+    env: {TERM: "xterm-256color"},
+    signal: scriptAbort.signal
+
   });
   const child = command.spawn();
   child.stdin.close();
@@ -158,6 +172,7 @@ async function execResponse(script: string){
   const stderr = child.stderr.getReader();
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+
 
   const body = new ReadableStream({
     start: async (controller) => {
@@ -189,11 +204,14 @@ async function execResponse(script: string){
 
       const start = Date.now();
       setTimeout(() => {
+        console.log("Timeout reached, trying to exit")
+        scriptAbort.abort();
         const seconds = Math.floor((Date.now() - start) / 1000);
         controller.enqueue(encoder.encode(`event: timeout\ndata: \"Execution canceled after ${seconds} seconds\"\n\n`))
         stdout.cancel("timeout");
         stderr.cancel("timeout"); 
         controller.close();
+        exit(server);
       }, 10000);
 
       await Promise.all([

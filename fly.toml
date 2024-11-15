@@ -3,6 +3,9 @@ app = "bfaas"
     policy = "always"
     restries = 0
     processes = ["app"]
+
+[experimental]
+machine_config = 'machine.config.json'
    
 [http_service]
   internal_port = 8080

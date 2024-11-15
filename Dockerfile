@@ -1,6 +1,6 @@
 FROM denoland/deno:2.0.4
 
-RUN apt-get update && apt-get install -y iproute2 procps jq curl unzip git file && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y iproute2 procps jq curl unzip git file bsdextrautils cgroup-tools coreutils sqlite3 lsb-release && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /bfaas
 ADD server.ts server.ts
