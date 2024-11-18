@@ -8,8 +8,6 @@ const ips = [
   "2a09:8280:1::6:3ae7/48"
 ]
 async function setNullRoutes(){
-  //console.log("setNullRoutes interval fired")
-  return;
   const sets : Promise<any>[] = []
 
   for(const ip of ips){
@@ -23,7 +21,8 @@ async function setNullRoutes(){
   await Promise.all(sets);
 }
 
-const blackhole = setInterval(setNullRoutes, 1000);
+setNullRoutes();
+// const blackhole = setInterval(setNullRoutes, 1000);
 
 const exit = async (server: Deno.HttpServer) => {
   clearInterval(blackhole);
@@ -157,6 +156,8 @@ async function execResponse(script: string){
   //   args: ["-n", "20", "--", "/bin/bash", "-c", script],
   const command = new Deno.Command("/bin/bash", {
     args: ["-c", script],
+    uid: 65534, // run as nobody for now
+    guid: 65534, // run as nobody for now
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
@@ -207,7 +208,7 @@ async function execResponse(script: string){
         console.log("Timeout reached, trying to exit")
         scriptAbort.abort();
         const seconds = Math.floor((Date.now() - start) / 1000);
-        controller.enqueue(encoder.encode(`event: timeout\ndata: \"Execution canceled after ${seconds} seconds\"\n\n`))
+        controller.enqueue(encoder.encode(`event: exit\ndata: {\"code\":143, \"message\":\"Execution canceled after ${seconds} seconds\"}\n\n`))
         stdout.cancel("timeout");
         stderr.cancel("timeout"); 
         controller.close();
