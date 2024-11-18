@@ -8,7 +8,7 @@ const ips = [
   "2a09:8280:1::6:3ae7/48"
 ]
 async function setNullRoutes(){
-  const sets : Promise<any>[] = []
+  const sets : Promise<Deno.CommandOutput>[] = []
 
   for(const ip of ips){
     const args = ["route", "add", "blackhole", ip]
@@ -25,7 +25,7 @@ setNullRoutes();
 // const blackhole = setInterval(setNullRoutes, 1000);
 
 const exit = async (server: Deno.HttpServer) => {
-  clearInterval(blackhole);
+  //clearInterval(blackhole);
   console.log(`Request finished, shutting down`);
   await server.shutdown();
   Deno.exit(0);
@@ -157,7 +157,7 @@ async function execResponse(script: string){
   const command = new Deno.Command("/bin/bash", {
     args: ["-c", script],
     uid: 65534, // run as nobody for now
-    guid: 65534, // run as nobody for now
+    gid: 65534, // run as nobody for now
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
@@ -180,7 +180,7 @@ async function execResponse(script: string){
       // const writer = child.stdin.getWriter();
       // writer.write(script);
 
-      const enqueue = (label: string, chunk: ReadableStreamDefaultReadResult<Uint8Array> | string) => {
+      const enqueue = (label: string, chunk: ReadableStreamReadResult<Uint8Array> | string) => {
         let txt:string;
         
         if(typeof chunk === 'string'){
